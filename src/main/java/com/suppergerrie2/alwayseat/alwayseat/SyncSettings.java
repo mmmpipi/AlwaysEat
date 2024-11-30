@@ -1,26 +1,28 @@
 package com.suppergerrie2.alwayseat.alwayseat;
 
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-public class SyncSettings {
+public record SyncSettings(Config.Mode mode, List<String> itemList, List<String> uneatableList) implements CustomPacketPayload {
 
-    Config.Mode mode;
-    List<String> itemList;
-    List<String> uneatableList;
 
-    public SyncSettings(Config.Mode mode, List<String> itemList, List<String> uneatableList) {
-        this.mode = mode;
-        this.itemList = itemList;
-        this.uneatableList = uneatableList;
-    }
+
+    public static final CustomPacketPayload.Type<SyncSettings> TYPE = new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(AlwaysEat.MOD_ID, "sync_data"));
+
+    public static final StreamCodec<FriendlyByteBuf, SyncSettings> STREAM_CODEC = StreamCodec.ofMember(
+            SyncSettings::encode,SyncSettings::decode
+    );
 
     public static void encode(SyncSettings msg, FriendlyByteBuf friendlyByteBuf) {
+
         friendlyByteBuf.writeEnum(msg.mode);
         friendlyByteBuf.writeCollection(msg.itemList, FriendlyByteBuf::writeUtf);
         friendlyByteBuf.writeCollection(msg.uneatableList, FriendlyByteBuf::writeUtf);
@@ -33,13 +35,12 @@ public class SyncSettings {
         return new SyncSettings(mode, itemList, uneatableList);
     }
 
-    public static void handle(SyncSettings msg, Supplier<NetworkEvent.Context> contextSupplier) {
-        contextSupplier.get().enqueueWork(() -> {
+    public static void handle(SyncSettings msg, final IPayloadContext context) {
+        context.enqueueWork(() -> {
             Config.MODE.set(msg.mode);
             Config.ITEM_LIST.set(msg.itemList);
             Config.UNEATABLE_ITEMS.set(msg.uneatableList);
         });
-        contextSupplier.get().setPacketHandled(true);
     }
 
     public static SyncSettings fromConfig() {
@@ -50,5 +51,10 @@ public class SyncSettings {
 
     private static List<String> asStrings(List<?> values) {
         return values.stream().map(Object::toString).collect(Collectors.toList());
+    }
+
+    @Override
+    public @NotNull Type<? extends CustomPacketPayload> type() {
+        return SyncSettings.TYPE;
     }
 }

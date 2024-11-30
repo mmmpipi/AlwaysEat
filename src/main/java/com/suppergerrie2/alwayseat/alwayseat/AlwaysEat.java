@@ -1,20 +1,22 @@
 package com.suppergerrie2.alwayseat.alwayseat;
 
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.entity.player.PlayerInteractEvent;
-import net.minecraftforge.fml.DistExecutor;
-import net.minecraftforge.fml.ModLoadingContext;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.config.ModConfig;
-import net.minecraftforge.network.NetworkRegistry;
-import net.minecraftforge.network.simple.SimpleChannel;
-import net.minecraftforge.registries.ForgeRegistries;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.config.ModConfigEvent;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.neoforge.network.PacketDistributor;
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 import java.util.Objects;
 
@@ -24,26 +26,38 @@ public class AlwaysEat {
     public static final String MOD_ID = "salwayseat";
     private static final String PROTOCOL_VERSION = "1";
 
-    public static final SimpleChannel INSTANCE = NetworkRegistry.newSimpleChannel(
-            new ResourceLocation(MOD_ID, "main"),
-            () -> PROTOCOL_VERSION,
-            PROTOCOL_VERSION::equals,
-            PROTOCOL_VERSION::equals
-    );
+    public AlwaysEat(ModContainer container, IEventBus busEvent) {
 
-    public AlwaysEat() {
-        DistExecutor.safeRunWhenOn(Dist.DEDICATED_SERVER, () -> ServerEvents::new);
+//        DistExecutor.safeRunWhenOn(Dist.DEDICATED_SERVER, () -> ServerEvents::new);
+        NeoForge.EVENT_BUS.addListener(AlwaysEat::rightClickItemEvent);
+        busEvent.addListener(AlwaysEat::register);
+        busEvent.addListener(AlwaysEat::configReloadEvent);
+        container.registerConfig(ModConfig.Type.SERVER,Config.CONFIG_SPEC);
 
-        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, Config.SERVER_CONFIG);
-
-        INSTANCE.registerMessage(0, SyncSettings.class, SyncSettings::encode, SyncSettings::decode, SyncSettings::handle);
-
-        MinecraftForge.EVENT_BUS.addListener(this::rightClickItemEvent);
     }
 
-    public void rightClickItemEvent(PlayerInteractEvent.RightClickItem event) {
+
+    @SubscribeEvent
+    public static void register(final RegisterPayloadHandlersEvent event) {
+        // Sets the current network version
+        final PayloadRegistrar registrar = event.registrar(PROTOCOL_VERSION);
+        registrar.playToClient(
+                SyncSettings.TYPE,
+                SyncSettings.STREAM_CODEC,
+                SyncSettings::handle
+        );
+    }
+
+    @SubscribeEvent
+    public static void configReloadEvent(ModConfigEvent.Reloading event){
+        PacketDistributor.sendToAllPlayers(SyncSettings.fromConfig());
+    }
+
+    @SubscribeEvent
+    public static void rightClickItemEvent(PlayerInteractEvent.RightClickItem event) {
         ItemStack itemstack = event.getItemStack();
-        if(!itemstack.isEdible()) return;
+        if(itemstack.get(DataComponents.FOOD) == null) return;
+        //if(!itemstack.isEdible()) return;
 
         Player player = event.getEntity();
 
@@ -59,10 +73,10 @@ public class AlwaysEat {
 
     public static boolean canEatItemWhenFull(ItemStack item, LivingEntity livingEntity) {
 
-        String registryName = Objects.requireNonNull(ForgeRegistries.ITEMS.getKey(item.getItem())).toString();
+        String registryName = Objects.requireNonNull(BuiltInRegistries.ITEM.getKey(item.getItem())).toString();
 
         // If an item is in the uneatable items list always set it to false
-        if (!item.isEdible() || Config.UNEATABLE_ITEMS.get().contains(registryName)) {
+        if (Config.UNEATABLE_ITEMS.get().contains(registryName)) {
             return false;
         }
 
